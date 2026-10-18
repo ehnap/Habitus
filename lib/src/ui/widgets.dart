@@ -219,17 +219,24 @@ class AlbumCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AspectRatio(
             aspectRatio: 1,
             child: CoverArt(cache: cache, libraryId: libraryId, coverArt: album.coverArt, radius: 16),
           ),
           const SizedBox(height: 8),
-          Text(album.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            album.name,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           Text(
             album.artistLabel,
             maxLines: 1,
+            softWrap: false,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: muted, fontSize: 12),
           ),

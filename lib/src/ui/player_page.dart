@@ -237,8 +237,6 @@ class _CoverPage extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(28, 12, 28, 8),
       child: Column(
         children: [
-          const Text(Zh.cover, style: TextStyle(fontSize: 12)),
-          const SizedBox(height: 12),
           Expanded(
             child: AspectRatio(
               aspectRatio: 1,
@@ -317,10 +315,6 @@ class _LyricPageState extends State<_LyricPage> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        const Padding(
-          padding: EdgeInsets.only(top: 8),
-          child: Text(Zh.lyric, style: TextStyle(fontSize: 12)),
-        ),
         Expanded(
           child: FutureBuilder<LyricTrack?>(
             future: _future,

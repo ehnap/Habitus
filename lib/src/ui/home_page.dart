@@ -140,30 +140,47 @@ class _HomePageState extends State<HomePage> {
   Widget _shelf(String title, List<Album> albums) {
     if (albums.isEmpty) return const SizedBox.shrink();
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SectionTitle(title),
-        SizedBox(
-          height: 210,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: albums.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 12),
-            itemBuilder: (context, index) {
-              final album = albums[index];
-              return SizedBox(
-                width: 148,
-                child: AlbumCard(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final columns = _homeColumns(width);
+            const gap = 16.0;
+            final tile = columns <= 1 ? width : (width - gap * (columns - 1)) / columns;
+            return GridView.builder(
+              shrinkWrap: true,
+              primary: false,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisSpacing: 18,
+                crossAxisSpacing: gap,
+                mainAxisExtent: tile + 72,
+              ),
+              itemCount: albums.length,
+              itemBuilder: (context, index) {
+                final album = albums[index];
+                return AlbumCard(
                   album: album,
                   cache: widget.controller.covers,
                   libraryId: widget.controller.current?.id,
                   onTap: () => openAlbum(context, widget.controller, album.id),
-                ),
-              );
-            },
-          ),
+                );
+              },
+            );
+          },
         ),
       ],
     );
   }
+}
+
+int _homeColumns(double width) {
+  if (width >= 1500) return 5;
+  if (width >= 1100) return 4;
+  if (width >= 760) return 3;
+  if (width >= 480) return 2;
+  return 2;
 }
