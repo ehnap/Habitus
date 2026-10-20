@@ -179,6 +179,7 @@ class _AlbumBody extends StatelessWidget {
             ),
           SongTile(
             song: songs[i],
+            controller: controller,
             number: songs[i].track == 0 ? i + 1 : songs[i].track,
             starred: songs[i].starred,
             active: controller.player.views.view.song?.id == songs[i].id,
@@ -439,6 +440,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
                   for (var i = 0; i < songs.length; i++)
                     SongTile(
                       song: songs[i],
+                      controller: widget.controller,
                       number: i + 1,
                       starred: songs[i].starred,
                       active: widget.controller.player.views.view.song?.id == songs[i].id,

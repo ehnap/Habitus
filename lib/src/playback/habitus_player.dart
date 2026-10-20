@@ -212,6 +212,18 @@ class HabitusAudioHandler extends BaseAudioHandler with SeekHandler {
     _publish(force: true);
   }
 
+  /// Updates every queued copy of [songId]. Does not start a new request.
+  void applyStar(String songId, bool starred) {
+    var changed = false;
+    for (var i = 0; i < _items.length; i++) {
+      final item = _items[i];
+      if (item.song.id != songId || item.song.starred == starred) continue;
+      _items[i] = QueueItem(song: item.song.copyWith(starred: starred), albumGain: item.albumGain);
+      changed = true;
+    }
+    if (changed) _publish(force: true);
+  }
+
   Future<void> removeAt(int index) async {
     if (index < 0 || index >= _items.length) return;
     final wasPlaying = _player.playing;

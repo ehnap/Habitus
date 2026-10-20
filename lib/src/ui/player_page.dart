@@ -193,6 +193,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     final song = view.items[itemIndex].song;
                     return SongTile(
                       song: song,
+                      controller: widget.controller,
                       number: itemIndex + 1,
                       active: itemIndex == view.index,
                       starred: song.starred,
@@ -268,7 +269,21 @@ class _CoverPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          Text(song.title, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge),
+          Row(
+            children: [
+              const SizedBox(width: 40),
+              Expanded(
+                child: Text(
+                  song.title,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              SongHeart(controller: controller, song: song),
+            ],
+          ),
           const SizedBox(height: 4),
           Text(song.artistLabel, textAlign: TextAlign.center, style: TextStyle(color: muted)),
           if (song.album.isNotEmpty)

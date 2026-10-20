@@ -67,6 +67,8 @@ class AppController extends ChangeNotifier {
   Timer? _positionTimer;
   final Map<String, LyricTrack?> _lyricMemory = {};
   final Map<String, Future<LyricTrack?>> _lyricInflight = {};
+  final Map<String, bool> _starOverride = {};
+  final Map<String, int> _starEpoch = {};
 
   bool get hasLibrary => current != null;
   bool get needsPassword => current != null && (password == null || password!.isEmpty);
@@ -199,6 +201,8 @@ class AppController extends ChangeNotifier {
     await player.restore(
       id == null ? const QueueSnapshot() : await database.loadQueue(libraryId),
     );
+    _starOverride.clear();
+    _starEpoch.clear();
     libraryEpoch++;
     notifyListeners();
   }
@@ -214,6 +218,8 @@ class AppController extends ChangeNotifier {
     client.ignoreFolderFilter = false;
     folders = [];
     _bind();
+    _starOverride.clear();
+    _starEpoch.clear();
     await player.restore(
       current == null ? const QueueSnapshot() : await database.loadQueue(current!.id),
     );
@@ -241,6 +247,8 @@ class AppController extends ChangeNotifier {
         await player.restore(await database.loadQueue(current!.id));
       }
     }
+    _starOverride.clear();
+    _starEpoch.clear();
     libraryEpoch++;
     notifyListeners();
   }
@@ -391,6 +399,40 @@ class AppController extends ChangeNotifier {
       if (starred) return client.star(id: songId, albumId: albumId, artistId: artistId);
       return client.unstar(id: songId, albumId: albumId, artistId: artistId);
     });
+  }
+
+  /// In-memory mirror of the last star tap. Not a second favorites list.
+  bool isStarred(Song song, {bool fallback = false}) {
+    final override = _starOverride[song.id];
+    if (override != null) return override;
+    return song.starred || fallback;
+  }
+
+  /// Flips the heart immediately, then calls Subsonic star/unstar.
+  /// A failed request puts the heart back and does not write another store.
+  Future<void> toggleSongStar(Song song, {bool fallback = false}) async {
+    if (song.id.isEmpty) return;
+    final next = !isStarred(song, fallback: fallback);
+    final epoch = (_starEpoch[song.id] ?? 0) + 1;
+    _starEpoch[song.id] = epoch;
+    _starOverride[song.id] = next;
+    player.applyStar(song.id, next);
+    notifyListeners();
+    try {
+      await setStar(songId: song.id, starred: next);
+    } catch (_) {
+      if (_starEpoch[song.id] != epoch) return;
+      final revert = !next;
+      _starOverride[song.id] = revert;
+      player.applyStar(song.id, revert);
+      notifyListeners();
+      toast(Zh.starFailed);
+      return;
+    }
+    if (_starEpoch[song.id] != epoch) return;
+    try {
+      await persistQueue();
+    } catch (_) {}
   }
 
   Future<void> playSongs(List<Song> songs, int index, {required bool albumGain}) async {

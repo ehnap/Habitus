@@ -396,6 +396,7 @@ class _MiniBar extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (song != null) SongHeart(controller: controller, song: song, size: 20),
                   IconButton(
                     tooltip: view.playing ? Zh.pause : Zh.play,
                     onPressed: song == null

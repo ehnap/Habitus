@@ -246,11 +246,46 @@ class AlbumCard extends StatelessWidget {
   }
 }
 
+class SongHeart extends StatelessWidget {
+  const SongHeart({
+    super.key,
+    required this.controller,
+    required this.song,
+    this.fallback = false,
+    this.size = 22,
+  });
+
+  final AppController controller;
+  final Song song;
+  final bool fallback;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final on = controller.isStarred(song, fallback: fallback);
+        final color = on ? Theme.of(context).colorScheme.primary : Theme.of(context).iconTheme.color;
+        return IconButton(
+          tooltip: on ? Zh.unstar : Zh.star,
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          onPressed: () => controller.toggleSongStar(song, fallback: fallback),
+          icon: Icon(on ? Icons.favorite : Icons.favorite_border, size: size, color: color),
+        );
+      },
+    );
+  }
+}
+
 class SongTile extends StatelessWidget {
   const SongTile({
     super.key,
     required this.song,
     required this.onTap,
+    this.controller,
     this.number,
     this.active = false,
     this.starred = false,
@@ -259,6 +294,7 @@ class SongTile extends StatelessWidget {
 
   final Song song;
   final VoidCallback onTap;
+  final AppController? controller;
   final int? number;
   final bool active;
   final bool starred;
@@ -295,8 +331,11 @@ class SongTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (starred) Icon(Icons.favorite, size: 16, color: scheme.primary),
-          const SizedBox(width: 8),
+          if (controller != null)
+            SongHeart(controller: controller!, song: song, fallback: starred, size: 18)
+          else if (starred || song.starred)
+            Icon(Icons.favorite, size: 16, color: scheme.primary),
+          const SizedBox(width: 4),
           Text(formatClock(song.durationValue), style: TextStyle(color: muted, fontSize: 12)),
           if (onMore != null)
             IconButton(tooltip: Zh.more, onPressed: onMore, icon: const Icon(Icons.more_horiz)),
@@ -332,7 +371,12 @@ class WarningBanner extends StatelessWidget {
   }
 }
 
-Future<void> showSongMenu(BuildContext context, AppController controller, Song song) async {
+Future<void> showSongMenu(
+  BuildContext context,
+  AppController controller,
+  Song song, {
+  bool starredFallback = false,
+}) async {
   final action = await showModalBottomSheet<String>(
     context: context,
     showDragHandle: true,
@@ -346,8 +390,10 @@ Future<void> showSongMenu(BuildContext context, AppController controller, Song s
             ListTile(leading: const Icon(Icons.playlist_add), title: const Text(Zh.addToEnd), onTap: () => Navigator.pop(context, 'end')),
             ListTile(leading: const Icon(Icons.queue_music), title: const Text(Zh.addToPlaylist), onTap: () => Navigator.pop(context, 'playlist')),
             ListTile(
-              leading: Icon(song.starred ? Icons.favorite : Icons.favorite_border),
-              title: Text(song.starred ? Zh.unstar : Zh.star),
+              leading: Icon(
+                controller.isStarred(song, fallback: starredFallback) ? Icons.favorite : Icons.favorite_border,
+              ),
+              title: Text(controller.isStarred(song, fallback: starredFallback) ? Zh.unstar : Zh.star),
               onTap: () => Navigator.pop(context, 'star'),
             ),
             if (song.albumId.isNotEmpty)
@@ -370,12 +416,7 @@ Future<void> showSongMenu(BuildContext context, AppController controller, Song s
     case 'playlist':
       if (context.mounted) await pickPlaylist(context, controller, [song.id]);
     case 'star':
-      final next = !song.starred;
-      try {
-        await controller.setStar(songId: song.id, starred: next);
-      } catch (error) {
-        controller.toast(describeError(error));
-      }
+      await controller.toggleSongStar(song, fallback: starredFallback);
     case 'album':
       if (context.mounted) openAlbum(context, controller, song.albumId);
     case 'artist':

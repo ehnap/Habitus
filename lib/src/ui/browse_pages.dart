@@ -389,6 +389,7 @@ class _SongsPageState extends State<SongsPage> {
               final song = _songs[index];
               return SongTile(
                 song: song,
+                controller: widget.controller,
                 onTap: () => widget.controller.playSongs(_songs, index, albumGain: false),
                 onMore: () => showSongMenu(context, widget.controller, song),
               );
@@ -571,9 +572,15 @@ class _FavoritesPageState extends State<FavoritesPage> {
             for (var i = 0; i < _starred.songs.length; i++)
               SongTile(
                 song: _starred.songs[i],
+                controller: widget.controller,
                 starred: true,
                 onTap: () => widget.controller.playSongs(_starred.songs, i, albumGain: false),
-                onMore: () => showSongMenu(context, widget.controller, _starred.songs[i]),
+                onMore: () => showSongMenu(
+                  context,
+                  widget.controller,
+                  _starred.songs[i],
+                  starredFallback: true,
+                ),
               ),
           ],
         ),
@@ -713,6 +720,7 @@ class _GenreSongsPageState extends State<GenreSongsPage> {
           itemCount: _songs.length,
           itemBuilder: (context, index) => SongTile(
             song: _songs[index],
+            controller: widget.controller,
             onTap: () => widget.controller.playSongs(_songs, index, albumGain: false),
             onMore: () => showSongMenu(context, widget.controller, _songs[index]),
           ),
@@ -824,6 +832,7 @@ class _FolderIndexPageState extends State<FolderIndexPage> {
               else if (entry.song != null)
                 SongTile(
                   song: entry.song!,
+                  controller: widget.controller,
                   onTap: () {
                     final index = songs.indexWhere((song) => song.id == entry.song!.id);
                     widget.controller.playSongs(songs, index < 0 ? 0 : index, albumGain: false);
@@ -940,6 +949,7 @@ class _SearchPageState extends State<SearchPage> {
                             for (var i = 0; i < result.songs.length; i++)
                               SongTile(
                                 song: result.songs[i],
+                                controller: widget.controller,
                                 onTap: () => widget.controller.playSongs(result.songs, i, albumGain: false),
                                 onMore: () => showSongMenu(context, widget.controller, result.songs[i]),
                               ),
