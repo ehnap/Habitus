@@ -309,6 +309,10 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  Future<List<Song>> librarySongs({int offset = 0}) {
+    return _guard(() => client.librarySongs(offset: offset, musicFolderId: folderId));
+  }
+
   Future<List<Playlist>> playlists() => _guard(client.playlists);
 
   Future<Playlist> playlist(String id) => _guard(() => client.playlist(id));

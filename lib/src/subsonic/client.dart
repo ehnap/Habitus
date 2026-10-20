@@ -11,13 +11,15 @@ import '../playback/stream_choice.dart';
 import 'auth.dart';
 import 'parsers.dart';
 
+const int librarySongPageSize = 100;
+
 class QueryParams {
   final List<MapEntry<String, String>> entries = [];
 
-  void add(String key, Object? value) {
+  void add(String key, Object? value, {bool allowEmpty = false}) {
     if (value == null) return;
     final text = value.toString();
-    if (text.isEmpty) return;
+    if (text.isEmpty && !allowEmpty) return;
     entries.add(MapEntry(key, text));
   }
 
@@ -170,7 +172,7 @@ class SubsonicClient {
     String? musicFolderId,
   }) async {
     final params = QueryParams()
-      ..add('query', query)
+      ..add('query', query, allowEmpty: true)
       ..add('artistCount', artistCount)
       ..add('albumCount', albumCount)
       ..add('songCount', songCount)
@@ -179,6 +181,18 @@ class SubsonicClient {
       ..add('songOffset', songOffset);
     final response = await _withFolder('search3', params, musicFolderId);
     return parseSearch(response);
+  }
+
+  Future<List<Song>> librarySongs({int offset = 0, String? musicFolderId}) async {
+    final result = await search(
+      query: '',
+      songCount: librarySongPageSize,
+      songOffset: offset,
+      artistCount: 0,
+      albumCount: 0,
+      musicFolderId: musicFolderId,
+    );
+    return result.songs;
   }
 
   Future<List<Playlist>> playlists() async {

@@ -216,6 +216,53 @@ void main() {
     await server.close(force: true);
     await dir.delete(recursive: true);
   });
+
+  test('empty-query song page sends query, song page size, and zero artist and album counts', () async {
+    final hits = <Uri>[];
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      hits.add(request.uri);
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'subsonic-response': {
+            'status': 'ok',
+            'version': '1.16.1',
+            'searchResult3': {
+              'song': {'id': 's1', 'title': '海', 'artist': '甲', 'duration': 8},
+            },
+          },
+        }),
+      );
+      await request.response.close();
+    });
+
+    final client = SubsonicClient()
+      ..baseUrl = 'http://127.0.0.1:${server.port}'
+      ..username = 'ada'
+      ..password = 'secret';
+    final first = await client.librarySongs(offset: 0, musicFolderId: '3');
+    expect(first.single.title, '海');
+    expect(hits.single.path, endsWith('search3.view'));
+    final firstQuery = hits.single.queryParameters;
+    expect(firstQuery['query'], '');
+    expect(firstQuery['songCount'], '$librarySongPageSize');
+    expect(firstQuery['songOffset'], '0');
+    expect(firstQuery['artistCount'], '0');
+    expect(firstQuery['albumCount'], '0');
+    expect(firstQuery['musicFolderId'], '3');
+
+    await client.librarySongs(offset: librarySongPageSize);
+    final nextQuery = hits[1].queryParameters;
+    expect(nextQuery['query'], '');
+    expect(nextQuery['songCount'], '$librarySongPageSize');
+    expect(nextQuery['songOffset'], '$librarySongPageSize');
+    expect(nextQuery['artistCount'], '0');
+    expect(nextQuery['albumCount'], '0');
+
+    client.close();
+    await server.close(force: true);
+  });
 }
 
 Future<void> _settle() => Future<void>.delayed(const Duration(milliseconds: 50));

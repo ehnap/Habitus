@@ -6,6 +6,7 @@ import '../copy/zh.dart';
 import '../failure.dart';
 import '../model/models.dart';
 import '../state/app_controller.dart';
+import '../subsonic/client.dart';
 import 'widgets.dart';
 
 class LibraryHubPage extends StatelessWidget {
@@ -253,21 +254,147 @@ class _ArtistIndexPageState extends State<ArtistIndexPage> {
   }
 }
 
-class SongsPage extends StatelessWidget {
+class SongsPage extends StatefulWidget {
   const SongsPage({super.key, required this.controller});
 
   final AppController controller;
 
   @override
+  State<SongsPage> createState() => _SongsPageState();
+}
+
+class _SongsPageState extends State<SongsPage> {
+  final _songs = <Song>[];
+  bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = true;
+  Object? _error;
+  bool _failedReset = false;
+  int _epoch = -1;
+  String? _folder;
+  int _request = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _epoch = widget.controller.libraryEpoch;
+    _folder = widget.controller.folderId;
+    widget.controller.addListener(_onController);
+    _load(reset: true);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onController);
+    super.dispose();
+  }
+
+  void _onController() {
+    final folder = widget.controller.folderId;
+    if (widget.controller.libraryEpoch == _epoch && folder == _folder) return;
+    _epoch = widget.controller.libraryEpoch;
+    _folder = folder;
+    _load(reset: true);
+  }
+
+  Future<void> _load({required bool reset}) async {
+    if (!reset && (_loading || _loadingMore || !_hasMore)) return;
+    final token = ++_request;
+    final offset = reset ? 0 : _songs.length;
+    setState(() {
+      _error = null;
+      _failedReset = false;
+      if (reset) {
+        _loading = true;
+        _loadingMore = false;
+      } else {
+        _loadingMore = true;
+      }
+    });
+    try {
+      final page = await widget.controller.librarySongs(offset: offset);
+      if (!mounted || token != _request) return;
+      setState(() {
+        if (reset) {
+          _songs
+            ..clear()
+            ..addAll(page);
+        } else {
+          _songs.addAll(page);
+        }
+        _hasMore = page.length >= librarySongPageSize;
+        _loading = false;
+        _loadingMore = false;
+        _error = null;
+        _epoch = widget.controller.libraryEpoch;
+        _folder = widget.controller.folderId;
+      });
+    } catch (error) {
+      if (!mounted || token != _request) return;
+      setState(() {
+        _loading = false;
+        _loadingMore = false;
+        _error = error;
+        _failedReset = reset;
+      });
+    }
+  }
+
+  bool _nearEnd(ScrollNotification notification) {
+    return notification.metrics.pixels > notification.metrics.maxScrollExtent - 240;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text(Zh.songs)),
-      body: MessagePane(
-        icon: Icons.search,
-        title: Zh.songs,
-        body: Zh.songsNotice,
-        actionLabel: Zh.randomBatch,
-        onAction: () => controller.playRandomBatch(),
+      appBar: AppBar(
+        title: const Text(Zh.songs),
+        actions: [
+          TextButton(
+            onPressed: () => widget.controller.playRandomBatch(),
+            child: const Text(Zh.randomBatch),
+          ),
+        ],
+      ),
+      body: StatusPane(
+        loading: _loading && _songs.isEmpty,
+        error: _songs.isEmpty ? _error : null,
+        empty: !_loading && _error == null && _songs.isEmpty,
+        emptyTitle: Zh.emptyCatalogTitle,
+        emptyBody: Zh.emptyCatalogBody,
+        onRetry: () => _load(reset: true),
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (_error == null && _nearEnd(notification)) _load(reset: false);
+            return false;
+          },
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 12),
+            itemCount: _songs.length + (_loadingMore || (_error != null && _songs.isNotEmpty) ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index >= _songs.length) {
+                if (_error != null) {
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Center(
+                      child: TextButton(onPressed: () => _load(reset: _failedReset), child: const Text(Zh.retry)),
+                    ),
+                  );
+                }
+                return const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final song = _songs[index];
+              return SongTile(
+                song: song,
+                onTap: () => widget.controller.playSongs(_songs, index, albumGain: false),
+                onMore: () => showSongMenu(context, widget.controller, song),
+              );
+            },
+          ),
+        ),
       ),
     );
   }

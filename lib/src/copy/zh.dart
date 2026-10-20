@@ -74,7 +74,6 @@ abstract final class Zh {
   static const lyricsLoading = '正在读取歌词';
   static const lyricsFailed = '歌词没有加载出来';
   static const folderNotice = '这里按标签拼出来，不是磁盘上的目录。';
-  static const songsNotice = '整个曲库的歌曲列表不在这里。用搜索找一首歌，或随机播放一批。';
   static const randomBatch = '随机播放一批';
   static const newPlaylist = '新建歌单';
   static const playlistName = '歌单名称';
