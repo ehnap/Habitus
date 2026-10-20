@@ -55,6 +55,13 @@ add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+# Chinese Windows (code page 936) reports C4819 for UTF-8 bytes in plugin
+# sources. /WX turns that warning into error C2220. /utf-8 has to be on this
+# directory before the plugin subdirectories below are added, so those targets
+# inherit it. Do not drop /WX.
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
 include(flutter/generated_plugins.cmake)
 
 
