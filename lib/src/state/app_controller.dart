@@ -9,6 +9,7 @@ import '../copy/zh.dart';
 import '../model/models.dart';
 import '../playback/format_policy.dart';
 import '../playback/habitus_player.dart';
+import '../playback/lrc_api.dart';
 import '../playback/queue_logic.dart';
 import '../storage/app_database.dart';
 import '../storage/audio_cache.dart';
@@ -64,6 +65,8 @@ class AppController extends ChangeNotifier {
   List<MusicFolder> folders = [];
   bool _folderNotified = false;
   Timer? _positionTimer;
+  final Map<String, LyricTrack?> _lyricMemory = {};
+  final Map<String, Future<LyricTrack?>> _lyricInflight = {};
 
   bool get hasLibrary => current != null;
   bool get needsPassword => current != null && (password == null || password!.isEmpty);
@@ -269,8 +272,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> updateSettings(AppSettings next) async {
-    settings = next;
-    await database.saveSettings(next);
+    final stored = next.copyWith(lrcApiBase: next.lrcApiBase.trim());
+    if (stored.lrcApiBase != settings.lrcApiBase) {
+      _lyricMemory.clear();
+    }
+    settings = stored;
+    await database.saveSettings(stored);
     _bind();
     await player.setReplayGain(next.replayGain);
     notifyListeners();
@@ -346,8 +353,36 @@ class AppController extends ChangeNotifier {
   Future<List<FolderEntry>> folder(String id) => _guard(() => client.directory(id));
 
   Future<LyricTrack?> lyrics(Song song) {
-    return _guard(
+    final key = '${current?.id ?? ''}\u0000${song.id}\u0000${settings.lrcApiBase}';
+    if (_lyricMemory.containsKey(key)) {
+      return Future<LyricTrack?>.value(_lyricMemory[key]);
+    }
+    return _lyricInflight.putIfAbsent(key, () async {
+      try {
+        final track = await _resolveLyrics(song);
+        if ('${current?.id ?? ''}\u0000${song.id}\u0000${settings.lrcApiBase}' == key) {
+          _lyricMemory[key] = track;
+        }
+        return track;
+      } finally {
+        _lyricInflight.remove(key);
+      }
+    });
+  }
+
+  Future<LyricTrack?> _resolveLyrics(Song song) async {
+    final local = await _guard(
       () => client.lyricsFor(hasSongLyrics: current?.hasSongLyrics ?? false, song: song),
+    );
+    if (local != null && !local.isEmpty) return local;
+    final base = settings.lrcApiBase.trim();
+    if (base.isEmpty) return local;
+    return fetchLrcApiLyrics(
+      base: base,
+      title: song.title,
+      artist: song.artistLabel,
+      album: song.album,
+      durationSeconds: song.duration < 0 ? 0 : song.duration,
     );
   }
 

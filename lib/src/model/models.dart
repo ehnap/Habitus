@@ -10,6 +10,7 @@ class AppSettings {
     this.replayGain = true,
     this.cacheEnabled = true,
     this.cacheLimitBytes = defaultCacheLimit,
+    this.lrcApiBase = '',
   });
 
   static const defaultCacheLimit = 512 * 1024 * 1024;
@@ -19,17 +20,22 @@ class AppSettings {
   final bool cacheEnabled;
   final int cacheLimitBytes;
 
+  /// Base address of an LrcApi server. Empty means do not call it.
+  final String lrcApiBase;
+
   AppSettings copyWith({
     QualityMode? quality,
     bool? replayGain,
     bool? cacheEnabled,
     int? cacheLimitBytes,
+    String? lrcApiBase,
   }) {
     return AppSettings(
       quality: quality ?? this.quality,
       replayGain: replayGain ?? this.replayGain,
       cacheEnabled: cacheEnabled ?? this.cacheEnabled,
       cacheLimitBytes: cacheLimitBytes ?? this.cacheLimitBytes,
+      lrcApiBase: lrcApiBase ?? this.lrcApiBase,
     );
   }
 

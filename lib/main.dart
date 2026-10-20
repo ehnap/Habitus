@@ -7,7 +7,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:window_manager/window_manager.dart';
+
 import 'src/app.dart';
+import 'src/desktop/desktop_args.dart';
+import 'src/desktop/desktop_chrome.dart';
+import 'src/desktop/desktop_lyrics_window.dart';
 import 'src/playback/audio_proxy.dart';
 import 'src/playback/habitus_player.dart';
 import 'src/state/app_controller.dart';
@@ -17,8 +22,12 @@ import 'src/storage/cover_cache.dart';
 import 'src/storage/secure_store.dart';
 import 'src/subsonic/client.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (isDesktopLyricsLaunch(args)) {
+    await runDesktopLyricsWindow();
+    return;
+  }
   if (Platform.isLinux || Platform.isWindows) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -77,5 +86,16 @@ Future<void> main() async {
     runApp(HabitusBootFailure(error: error));
     return;
   }
-  runApp(HabitusApp(controller: controller));
+  DesktopChrome? desktop;
+  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    try {
+      await windowManager.ensureInitialized();
+      final chrome = DesktopChrome(controller);
+      await chrome.start();
+      desktop = chrome;
+    } catch (_) {
+      desktop = null;
+    }
+  }
+  runApp(HabitusApp(controller: controller, desktop: desktop));
 }

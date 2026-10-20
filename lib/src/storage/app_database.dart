@@ -132,6 +132,7 @@ class AppDatabase {
       replayGain: values['replay_gain'] != '0',
       cacheEnabled: values['cache_enabled'] != '0',
       cacheLimitBytes: int.tryParse(values['cache_limit'] ?? '') ?? AppSettings.defaultCacheLimit,
+      lrcApiBase: (values['lrc_api_base'] ?? '').trim(),
     );
   }
 
@@ -147,6 +148,7 @@ class AppDatabase {
     await put('replay_gain', settings.replayGain ? '1' : '0');
     await put('cache_enabled', settings.cacheEnabled ? '1' : '0');
     await put('cache_limit', '${settings.cacheLimitBytes}');
+    await put('lrc_api_base', settings.lrcApiBase.trim());
   }
 
   LibraryRecord _library(Map<String, Object?> row) {

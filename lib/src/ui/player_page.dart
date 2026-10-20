@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart' hide RepeatMode;
 
 import '../copy/zh.dart';
+import '../desktop/desktop_chrome.dart';
 import '../failure.dart';
 import '../format.dart';
 import '../model/models.dart';
@@ -20,6 +21,8 @@ class PlayerPage extends StatefulWidget {
 class _PlayerPageState extends State<PlayerPage> {
   late int _epoch;
   double? _dragMs;
+  final PageController _pages = PageController();
+  int _center = 0;
 
   @override
   void initState() {
@@ -31,7 +34,14 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void dispose() {
     widget.controller.removeListener(_onLibrary);
+    _pages.dispose();
     super.dispose();
+  }
+
+  void _toggleCenter() {
+    if (!_pages.hasClients) return;
+    final next = _center == 0 ? 1 : 0;
+    _pages.animateToPage(next, duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
   }
 
   void _onLibrary() {
@@ -47,6 +57,12 @@ class _PlayerPageState extends State<PlayerPage> {
       appBar: AppBar(
         title: const Text(Zh.appName),
         actions: [
+          IconButton(
+            tooltip: _center == 0 ? Zh.lyric : Zh.cover,
+            onPressed: _toggleCenter,
+            icon: Icon(_center == 0 ? Icons.lyrics_outlined : Icons.album_outlined),
+          ),
+          if (DesktopChrome.maybeOf(context) case final chrome?) DesktopWindowButtons(chrome: chrome),
           IconButton(
             tooltip: Zh.queue,
             onPressed: () => _openQueue(context),
@@ -71,6 +87,8 @@ class _PlayerPageState extends State<PlayerPage> {
                 children: [
                   Expanded(
                     child: PageView(
+                      controller: _pages,
+                      onPageChanged: (index) => setState(() => _center = index),
                       children: [
                         _CoverPage(controller: controller, song: song, route: view.routeLabel),
                         _LyricPage(controller: controller, song: song, position: view.position),

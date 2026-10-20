@@ -9,6 +9,8 @@ import 'package:habitus/src/format.dart';
 import 'package:habitus/src/model/models.dart';
 import 'package:habitus/src/playback/format_policy.dart';
 import 'package:habitus/src/playback/gain.dart';
+import 'package:habitus/src/desktop/desktop_args.dart';
+import 'package:habitus/src/playback/lrc_api.dart';
 import 'package:habitus/src/playback/lyrics.dart';
 import 'package:habitus/src/playback/queue_logic.dart';
 import 'package:habitus/src/playback/scrobble.dart';
@@ -289,6 +291,124 @@ void main() {
     expect(lrc.synced, isFalse);
   });
 
+  test('lrc parsing keeps stamps, offset, and plain lines', () {
+    expect(lyricsFromPlainText(null), isNull);
+    expect(lyricsFromPlainText('   \n'), isNull);
+    expect(lyricsFromPlainText('[ti:标题]\n[ar:人]\n'), isNull);
+
+    final multi = lyricsFromPlainText('[00:02.00][00:01.50]同句\n[00:00.50]先');
+    expect(multi!.synced, isTrue);
+    expect(multi.lines.map((line) => line.text), ['先', '同句', '同句']);
+    expect(multi.lines[0].start, const Duration(milliseconds: 500));
+    expect(multi.lines[1].start, const Duration(milliseconds: 1500));
+    expect(multi.lines[2].start, const Duration(milliseconds: 2000));
+    expect(activeLyricIndex(multi, const Duration(milliseconds: 1499)), 0);
+    expect(activeLyricIndex(multi, const Duration(milliseconds: 1500)), 1);
+
+    final offset = lyricsFromPlainText('[offset:+1000]\n[00:01]一\n[00:02.5]二');
+    expect(offset!.synced, isTrue);
+    expect(offset.lines[0].start, const Duration(seconds: 2));
+    expect(offset.lines[1].start, const Duration(milliseconds: 3500));
+    expect(activeLyricIndex(offset, const Duration(milliseconds: 1999)), -1);
+    expect(activeLyricIndex(offset, const Duration(milliseconds: 2000)), 0);
+
+    final hundredths = lyricsFromPlainText('[01:02.03]分');
+    expect(hundredths!.lines.single.start, const Duration(minutes: 1, seconds: 2, milliseconds: 30));
+    final millis = lyricsFromPlainText('[00:01.234]毫秒');
+    expect(millis!.lines.single.start, const Duration(milliseconds: 1234));
+
+    final plain = lyricsFromPlainText('第一行\n\n第二行');
+    expect(plain!.synced, isFalse);
+    expect(plain.lines.map((line) => line.text), ['第一行', '第二行']);
+    expect(activeLyricIndex(plain, Duration.zero), -1);
+    expect(lyricWindowLines(plain, Duration.zero).current, '第一行');
+    expect(lyricWindowLines(plain, Duration.zero).next, '第二行');
+    expect(lyricWindowLines(null, Duration.zero).current, isEmpty);
+    expect(lyricWindowLines(multi, const Duration(milliseconds: 1500)).current, '同句');
+    expect(lyricWindowLines(multi, const Duration(milliseconds: 1500)).next, '同句');
+  });
+
+  test('lrcapi url uses the documented lyrics query and does not open a socket', () {
+    expect(
+      lrcApiUri(base: '   ', title: '歌', artist: '人', album: '专', durationSeconds: 10),
+      isNull,
+    );
+    expect(
+      lrcApiUri(base: '', title: '歌', artist: '人', album: '专', durationSeconds: 10),
+      isNull,
+    );
+    expect(
+      lrcApiUri(base: 'ftp://files.example.com', title: '歌', artist: '人', album: '专', durationSeconds: 1),
+      isNull,
+    );
+
+    final origin = lrcApiUri(
+      base: 'https://api.lrc.cx',
+      title: '晴天',
+      artist: '周杰伦',
+      album: '叶惠美',
+      durationSeconds: 269,
+    )!;
+    expect(origin.scheme, 'https');
+    expect(origin.host, 'api.lrc.cx');
+    expect(origin.path, '/lyrics');
+    expect(origin.queryParameters['title'], '晴天');
+    expect(origin.queryParameters['artist'], '周杰伦');
+    expect(origin.queryParameters['album'], '叶惠美');
+    expect(origin.queryParameters['duration'], '269');
+    expect(origin.queryParameters.containsKey('path'), isFalse);
+    expect(origin.toString(), contains('title='));
+    expect(origin.toString(), isNot(contains('apiKey')));
+
+    final slashed = lrcApiUri(
+      base: 'http://127.0.0.1:28883/',
+      title: 'a b',
+      artist: '人',
+      album: '',
+      durationSeconds: 0,
+    )!;
+    expect(slashed.host, '127.0.0.1');
+    expect(slashed.port, 28883);
+    expect(slashed.path, '/lyrics');
+    expect(slashed.queryParameters['title'], 'a b');
+    expect(slashed.queryParameters['album'], '');
+    expect(slashed.queryParameters['duration'], '0');
+
+    final already = lrcApiUri(
+      base: 'https://api.lrc.cx/lyrics/',
+      title: 't',
+      artist: 'a',
+      album: 'b',
+      durationSeconds: 12,
+    )!;
+    expect(already.path, '/lyrics');
+    expect(already.queryParameters.keys, containsAll(['title', 'artist', 'album', 'duration']));
+
+    final single = lrcApiUri(
+      base: 'https://music.example.com/api/v1/lyrics/single',
+      title: 't',
+      artist: 'a',
+      album: 'b',
+      durationSeconds: 3,
+    )!;
+    expect(single.path, '/api/v1/lyrics/single');
+
+    final bare = lrcApiUri(
+      base: 'api.lrc.cx',
+      title: 't',
+      artist: 'a',
+      album: 'b',
+      durationSeconds: 4,
+    )!;
+    expect(bare.scheme, 'http');
+    expect(bare.host, 'api.lrc.cx');
+    expect(bare.path, '/lyrics');
+
+    expect(isDesktopLyricsLaunch(const ['multi_window', 'id', desktopLyricsArgument]), isTrue);
+    expect(isDesktopLyricsLaunch(const ['multi_window', 'id']), isFalse);
+    expect(isDesktopLyricsLaunch(const <String>[]), isFalse);
+  });
+
   test('database keeps libraries, settings, and paused queues', () async {
     final dir = await Directory.systemTemp.createTemp('habitus-db');
     final database = AppDatabase();
@@ -304,7 +424,14 @@ void main() {
     );
     await database.upsertLibrary(library);
     await database.setCurrentLibraryId(library.id);
-    await database.saveSettings(const AppSettings(quality: QualityMode.saver, replayGain: false, cacheEnabled: false));
+    await database.saveSettings(
+      const AppSettings(
+        quality: QualityMode.saver,
+        replayGain: false,
+        cacheEnabled: false,
+        lrcApiBase: 'https://api.lrc.cx',
+      ),
+    );
     final queue = QueueSnapshot(
       items: [QueueItem(song: const Song(id: 's', title: '歌'), albumGain: true)],
       index: 0,
@@ -317,6 +444,7 @@ void main() {
     final settings = await database.loadSettings();
     expect(settings.quality, QualityMode.saver);
     expect(settings.replayGain, isFalse);
+    expect(settings.lrcApiBase, 'https://api.lrc.cx');
     final loaded = await database.loadQueue(library.id);
     expect(loaded.items.single.song.title, '歌');
     expect(loaded.positionMs, 1500);

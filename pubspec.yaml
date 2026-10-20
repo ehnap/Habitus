@@ -48,6 +48,8 @@ dependencies:
   connectivity_plus: ^7.3.2
   just_audio_windows_plus: ^0.5.5
   audio_service_win: ^0.0.3
+  window_manager: ^0.5.2
+  desktop_multi_window: ^0.3.1
 
 dev_dependencies:
   flutter_test:

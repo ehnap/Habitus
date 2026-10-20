@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../copy/zh.dart';
+import '../desktop/desktop_chrome.dart';
+import '../desktop/desktop_drag.dart';
 import '../model/models.dart';
 import '../state/app_controller.dart';
 import '../theme/habitus_theme.dart';
@@ -25,6 +27,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _tab = ValueNotifier<int>(0);
   StreamSubscription<String>? _messages;
+  DesktopChrome? _chrome;
 
   @override
   void initState() {
@@ -41,7 +44,27 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = DesktopChrome.maybeOf(context);
+    if (!identical(_chrome, next)) {
+      _chrome?.removeListener(_onChrome);
+      _chrome = next;
+      _chrome?.addListener(_onChrome);
+    }
+  }
+
+  void _onChrome() {
+    if (!mounted) return;
+    if (_chrome?.mini == true) {
+      Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
+    }
+    setState(() {});
+  }
+
+  @override
   void dispose() {
+    _chrome?.removeListener(_onChrome);
     WidgetsBinding.instance.removeObserver(this);
     _messages?.cancel();
     _tab.dispose();
@@ -66,6 +89,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
+    final chrome = _chrome;
+    if (chrome != null && chrome.mini) {
+      return _MiniBar(controller: controller, chrome: chrome);
+    }
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
@@ -76,7 +103,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               children: [
                 _LibraryBar(controller: controller),
                 Expanded(child: _stackNavigator()),
-                _Transport(controller: controller, desktop: desktop, onOpen: _openPlayer),
+                _Transport(
+                  controller: controller,
+                  desktop: desktop,
+                  chrome: chrome,
+                  onOpen: _openPlayer,
+                ),
               ],
             );
             if (!desktop) {
@@ -227,11 +259,17 @@ class _LibraryBar extends StatelessWidget {
 }
 
 class _Transport extends StatelessWidget {
-  const _Transport({required this.controller, required this.desktop, required this.onOpen});
+  const _Transport({
+    required this.controller,
+    required this.desktop,
+    required this.onOpen,
+    this.chrome,
+  });
 
   final AppController controller;
   final bool desktop;
   final VoidCallback onOpen;
+  final DesktopChrome? chrome;
 
   @override
   Widget build(BuildContext context) {
@@ -297,6 +335,7 @@ class _Transport extends StatelessWidget {
                         icon: Icon(view.playing ? Icons.pause_circle_filled : Icons.play_circle_fill, size: 36),
                       ),
                       IconButton(tooltip: Zh.next, onPressed: controller.player.skipToNext, icon: const Icon(Icons.skip_next)),
+                      if (chrome != null) DesktopWindowButtons(chrome: chrome!),
                     ],
                   ),
                 ),
@@ -305,6 +344,81 @@ class _Transport extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _MiniBar extends StatelessWidget {
+  const _MiniBar({required this.controller, required this.chrome});
+
+  final AppController controller;
+  final DesktopChrome chrome;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: ListenableBuilder(
+        listenable: controller.player.views,
+        builder: (context, _) {
+          final view = controller.player.views.view;
+          final song = view.song;
+          return SizedBox.expand(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: DesktopDragArea(
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: CoverArt(
+                              cache: controller.covers,
+                              libraryId: controller.current?.id,
+                              coverArt: song?.coverArt ?? '',
+                              size: 128,
+                              radius: 8,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              song?.title ?? Zh.noQueue,
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: view.playing ? Zh.pause : Zh.play,
+                    onPressed: song == null
+                        ? null
+                        : (view.playing ? controller.player.pause : controller.player.play),
+                    icon: Icon(view.playing ? Icons.pause_circle_filled : Icons.play_circle_fill, size: 32),
+                  ),
+                  IconButton(
+                    tooltip: Zh.next,
+                    onPressed: song == null ? null : controller.player.skipToNext,
+                    icon: const Icon(Icons.skip_next),
+                  ),
+                  IconButton(
+                    tooltip: Zh.restoreWindow,
+                    onPressed: chrome.exitMini,
+                    icon: const Icon(Icons.open_in_full),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

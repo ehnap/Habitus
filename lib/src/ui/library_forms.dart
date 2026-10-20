@@ -385,6 +385,12 @@ class MePage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         OutlinedButton(onPressed: controller.clearPlaybackCache, child: const Text(Zh.clearCache)),
+        const SizedBox(height: 18),
+        Text(Zh.lrcApi, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 4),
+        Text(Zh.lrcApiHelp, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 8),
+        _LrcApiField(controller: controller),
       ],
     );
   }
@@ -400,5 +406,78 @@ class MePage extends StatelessWidget {
     if (library.unrecognized) notes.add(Zh.unrecognizedServer);
     if (!library.hasTranscoding) notes.add(Zh.noTranscoding);
     return notes.join(' · ');
+  }
+}
+
+class _LrcApiField extends StatefulWidget {
+  const _LrcApiField({required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<_LrcApiField> createState() => _LrcApiFieldState();
+}
+
+class _LrcApiFieldState extends State<_LrcApiField> {
+  late final TextEditingController _text;
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _text = TextEditingController(text: widget.controller.settings.lrcApiBase);
+    widget.controller.addListener(_sync);
+  }
+
+  void _sync() {
+    if (_focus.hasFocus) return;
+    final next = widget.controller.settings.lrcApiBase;
+    if (_text.text == next) return;
+    _text.text = next;
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_sync);
+    _text.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final value = _text.text.trim();
+    _text.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+    final settings = widget.controller.settings;
+    if (settings.lrcApiBase != value) {
+      await widget.controller.updateSettings(settings.copyWith(lrcApiBase: value));
+    }
+    if (!mounted) return;
+    widget.controller.toast(Zh.saved);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _text,
+          focusNode: _focus,
+          keyboardType: TextInputType.url,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: const InputDecoration(hintText: Zh.lrcApiHint),
+          onSubmitted: (_) => _save(),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton(onPressed: _save, child: const Text(Zh.save)),
+        ),
+      ],
+    );
   }
 }

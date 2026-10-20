@@ -90,6 +90,37 @@ Duration? lineStart(LyricLine line, Duration openSubsonicOffset) {
   return line.start! - openSubsonicOffset;
 }
 
+class LyricWindowLines {
+  const LyricWindowLines({required this.current, required this.next});
+
+  final String current;
+  final String next;
+}
+
+/// The line being sung, and the following line, for the small desktop window.
+LyricWindowLines lyricWindowLines(LyricTrack? track, Duration position) {
+  if (track == null || track.isEmpty) {
+    return const LyricWindowLines(current: '', next: '');
+  }
+  if (!track.synced) {
+    final texts = [
+      for (final line in track.lines)
+        if (line.text.trim().isNotEmpty) line.text.trim(),
+    ];
+    return LyricWindowLines(
+      current: texts.isEmpty ? '' : texts.first,
+      next: texts.length > 1 ? texts[1] : '',
+    );
+  }
+  final index = activeLyricIndex(track, position);
+  if (index < 0) {
+    return LyricWindowLines(current: '', next: track.lines.first.text.trim());
+  }
+  final current = track.lines[index].text.trim();
+  final next = index + 1 < track.lines.length ? track.lines[index + 1].text.trim() : '';
+  return LyricWindowLines(current: current, next: next);
+}
+
 int activeLyricIndex(LyricTrack track, Duration position) {
   if (!track.synced) return -1;
   var active = -1;

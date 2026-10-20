@@ -103,6 +103,13 @@ abstract final class Zh {
   static const playbackCacheHelp = '只缓存正在听的和下一首，上限 512 MB。这不是离线曲库。';
   static const clearCache = '清空播放缓存';
   static const cacheCleared = '播放缓存已清空';
+  static const lrcApi = '歌词接口';
+  static const lrcApiHint = 'https://api.lrc.cx';
+  static const lrcApiHelp = '留空就不请求。只填歌词服务的地址。曲库没有歌词时，才会按歌名、艺术家、专辑和时长去取。';
+  static const desktopLyrics = '桌面歌词';
+  static const desktopLyricsOff = '关闭桌面歌词';
+  static const miniMode = '迷你模式';
+  static const restoreWindow = '恢复窗口';
 
   static const directPlay = '原流';
   static const transcodedAac = '转码 AAC';

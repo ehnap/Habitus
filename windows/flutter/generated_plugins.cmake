@@ -5,8 +5,11 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   audio_service_win
   connectivity_plus
+  desktop_multi_window
   flutter_secure_storage_windows
   just_audio_windows_plus
+  screen_retriever_windows
+  window_manager
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
