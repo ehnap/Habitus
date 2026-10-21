@@ -375,10 +375,10 @@ bool LyricsWindow::EnsureCreated() {
     return false;
   }
   hwnd_ = created;
-  LONG_PTR ex_style = ::GetWindowLongPtrW(hwnd_, GWLP_EXSTYLE);
+  LONG_PTR ex_style = ::GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
   ex_style |= static_cast<LONG_PTR>(WS_EX_LAYERED | WS_EX_TOOLWINDOW);
   ex_style &= ~static_cast<LONG_PTR>(WS_EX_APPWINDOW | WS_EX_TRANSPARENT);
-  ::SetWindowLongPtrW(hwnd_, GWLP_EXSTYLE, ex_style);
+  ::SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, ex_style);
   ::SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
   return true;
