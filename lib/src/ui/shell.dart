@@ -406,7 +406,8 @@ class _MiniBar extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (song != null) SongHeart(controller: controller, song: song, size: 20),
+                  if (song != null)
+                    SongHeart(controller: controller, song: song, size: 20, showTooltip: false),
                   IconButton(
                     onPressed: song == null
                         ? null

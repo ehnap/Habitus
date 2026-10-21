@@ -57,7 +57,11 @@ Future<void> runDesktopLyricsWindow() async {
   await windowManager.setMaximumSize(const Size(720, 160));
   await windowManager.setBounds(const Rect.fromLTWH(120, 96, 560, 112));
   await windowManager.setAlwaysOnTop(true);
-  await windowManager.setBackgroundColor(Colors.transparent);
+  // Windows clears the system backdrop in the runner, then applies this
+  // gradient. Calling it here first leaves the opaque Win11 sheet in place.
+  if (!Platform.isWindows) {
+    await windowManager.setBackgroundColor(Colors.transparent);
+  }
   await windowManager.setTitle(Zh.appName);
   await windowManager.show();
   runApp(_DesktopLyricsApp(channel: channel, bridge: bridge));
@@ -89,7 +93,11 @@ class _DesktopLyricsApp extends StatelessWidget {
     return MaterialApp(
       title: Zh.appName,
       debugShowCheckedModeBanner: false,
-      theme: habitusDark().copyWith(scaffoldBackgroundColor: Colors.transparent),
+      theme: habitusDark().copyWith(
+        scaffoldBackgroundColor: Colors.transparent,
+        canvasColor: Colors.transparent,
+        cardColor: Colors.transparent,
+      ),
       home: _DesktopLyricsPage(channel: channel, bridge: bridge),
     );
   }

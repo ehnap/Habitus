@@ -191,6 +191,7 @@ class _PlayerPageState extends State<PlayerPage> {
                       number: itemIndex + 1,
                       active: itemIndex == view.index,
                       starred: song.starred,
+                      showTooltips: false,
                       onTap: () {
                         Navigator.pop(context);
                         widget.controller.player.skipToQueueItem(itemIndex);
@@ -275,7 +276,7 @@ class _CoverPage extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
-              SongHeart(controller: controller, song: song),
+              SongHeart(controller: controller, song: song, showTooltip: false),
             ],
           ),
           const SizedBox(height: 4),

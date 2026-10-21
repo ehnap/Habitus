@@ -253,12 +253,17 @@ class SongHeart extends StatelessWidget {
     required this.song,
     this.fallback = false,
     this.size = 22,
+    this.showTooltip = true,
   });
 
   final AppController controller;
   final Song song;
   final bool fallback;
   final double size;
+
+  /// Song lists keep the label. The mini bar and player sit on the window edge,
+  /// where the same label is clipped, so those callers turn it off.
+  final bool showTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -268,7 +273,7 @@ class SongHeart extends StatelessWidget {
         final on = controller.isStarred(song, fallback: fallback);
         final color = on ? Theme.of(context).colorScheme.primary : Theme.of(context).iconTheme.color;
         return IconButton(
-          tooltip: on ? Zh.unstar : Zh.star,
+          tooltip: showTooltip ? (on ? Zh.unstar : Zh.star) : null,
           visualDensity: VisualDensity.compact,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
@@ -290,6 +295,7 @@ class SongTile extends StatelessWidget {
     this.active = false,
     this.starred = false,
     this.onMore,
+    this.showTooltips = true,
   });
 
   final Song song;
@@ -299,6 +305,9 @@ class SongTile extends StatelessWidget {
   final bool active;
   final bool starred;
   final VoidCallback? onMore;
+
+  /// The player queue sits against the window edge, so it turns these off.
+  final bool showTooltips;
 
   @override
   Widget build(BuildContext context) {
@@ -332,13 +341,23 @@ class SongTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (controller != null)
-            SongHeart(controller: controller!, song: song, fallback: starred, size: 18)
+            SongHeart(
+              controller: controller!,
+              song: song,
+              fallback: starred,
+              size: 18,
+              showTooltip: showTooltips,
+            )
           else if (starred || song.starred)
             Icon(Icons.favorite, size: 16, color: scheme.primary),
           const SizedBox(width: 4),
           Text(formatClock(song.durationValue), style: TextStyle(color: muted, fontSize: 12)),
           if (onMore != null)
-            IconButton(tooltip: Zh.more, onPressed: onMore, icon: const Icon(Icons.more_horiz)),
+            IconButton(
+              tooltip: showTooltips ? Zh.more : null,
+              onPressed: onMore,
+              icon: const Icon(Icons.more_horiz),
+            ),
         ],
       ),
       onTap: onTap,
