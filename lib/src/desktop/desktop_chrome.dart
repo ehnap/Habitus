@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,9 +11,10 @@ import 'desktop_args.dart';
 
 /// Main-window mini mode and the desktop lyrics window.
 ///
-/// The lyrics window is hidden, never destroyed. Destroying that engine on
-/// Windows quits the process, and [windowManager.destroy] posts a quit even
-/// from the main window.
+/// Windows draws the two lyric lines in one native layered popup and hides
+/// that same HWND. Hiding it does not destroy the Flutter engine. macOS and
+/// Linux keep a Flutter lyrics window and hide it; [windowManager.destroy]
+/// posts a quit, so that engine is never destroyed.
 class DesktopChrome extends ChangeNotifier {
   DesktopChrome(this.controller);
 
@@ -22,7 +25,8 @@ class DesktopChrome extends ChangeNotifier {
   bool mini = false;
   bool lyricsOpen = false;
 
-  final WindowMethodChannel _channel = const WindowMethodChannel(
+  final MethodChannel _native = const MethodChannel(desktopLyricsChannel);
+  final WindowMethodChannel _window = const WindowMethodChannel(
     desktopLyricsChannel,
     mode: ChannelMode.bidirectional,
   );
@@ -34,18 +38,32 @@ class DesktopChrome extends ChangeNotifier {
   String? _linesKey;
 
   Future<void> start() async {
-    await _channel.setMethodCallHandler(_onChild);
+    if (Platform.isWindows) {
+      _native.setMethodCallHandler(_onChild);
+    } else {
+      await _window.setMethodCallHandler(_onChild);
+      onWindowsChanged.listen((_) {
+        _syncLyricsWindow();
+      });
+    }
     controller.player.views.addListener(_onPlayback);
-    onWindowsChanged.listen((_) {
-      _syncLyricsWindow();
-    });
+  }
+
+  Future<void> _invoke(String method, [Object? arguments]) async {
+    if (Platform.isWindows) {
+      await _native.invokeMethod<void>(method, arguments);
+    } else {
+      await _window.invokeMethod<void>(method, arguments);
+    }
   }
 
   Future<void> _syncLyricsWindow() async {
     if (!lyricsOpen) return;
     try {
       final windows = await WindowController.getAll();
-      final alive = windows.any((window) => window.arguments == desktopLyricsArgument);
+      final alive = windows.any(
+        (window) => window.arguments == desktopLyricsArgument,
+      );
       if (!alive && lyricsOpen) {
         lyricsOpen = false;
         notifyListeners();
@@ -103,10 +121,7 @@ class DesktopChrome extends ChangeNotifier {
     final key = '${song?.id ?? ''}|${lines.current}|${lines.next}';
     if (key == _linesKey) return;
     try {
-      await _channel.invokeMethod<void>('lines', {
-        'current': lines.current,
-        'next': lines.next,
-      });
+      await _invoke('lines', {'current': lines.current, 'next': lines.next});
       _linesKey = key;
     } catch (_) {}
   }
@@ -129,8 +144,24 @@ class DesktopChrome extends ChangeNotifier {
         _linesKey = null;
         notifyListeners();
         try {
-          await _channel.invokeMethod<void>('close');
+          await _invoke('close');
         } catch (_) {}
+        return;
+      }
+      if (Platform.isWindows) {
+        lyricsOpen = true;
+        _linesKey = null;
+        notifyListeners();
+        try {
+          // Clear first so a hidden popup does not flash the previous line.
+          // Empty strings leave the line slots blank.
+          await _invoke('lines', {'current': '', 'next': ''});
+          await _invoke('show');
+          await _pushLines();
+        } catch (_) {
+          lyricsOpen = false;
+          notifyListeners();
+        }
         return;
       }
       if (await _lyricsWindowAlive()) {
@@ -138,7 +169,7 @@ class DesktopChrome extends ChangeNotifier {
         _linesKey = null;
         notifyListeners();
         try {
-          await _channel.invokeMethod<void>('show');
+          await _invoke('show');
           await _pushLines();
         } catch (_) {
           lyricsOpen = false;
@@ -147,7 +178,10 @@ class DesktopChrome extends ChangeNotifier {
         return;
       }
       await WindowController.create(
-        const WindowConfiguration(hiddenAtLaunch: true, arguments: desktopLyricsArgument),
+        const WindowConfiguration(
+          hiddenAtLaunch: true,
+          arguments: desktopLyricsArgument,
+        ),
       );
       lyricsOpen = true;
       _linesKey = null;
@@ -173,7 +207,9 @@ class DesktopChrome extends ChangeNotifier {
       await windowManager.setMaximumSize(const Size(680, 92));
       await windowManager.setAlwaysOnTop(true);
       await windowManager.setAsFrameless();
-      await windowManager.setBounds(Rect.fromLTWH(bounds.left, bounds.top, miniSize.width, miniSize.height));
+      await windowManager.setBounds(
+        Rect.fromLTWH(bounds.left, bounds.top, miniSize.width, miniSize.height),
+      );
     } catch (_) {
       if (mini) {
         try {
@@ -207,19 +243,28 @@ class DesktopChrome extends ChangeNotifier {
     await windowManager.setAlwaysOnTop(false);
     await windowManager.setMaximumSize(const Size(16384, 16384));
     await windowManager.setMinimumSize(const Size(640, 480));
-    await windowManager.setTitleBarStyle(TitleBarStyle.normal, windowButtonVisibility: true);
+    await windowManager.setTitleBarStyle(
+      TitleBarStyle.normal,
+      windowButtonVisibility: true,
+    );
     if (restore != null) {
       await windowManager.setBounds(restore);
     }
   }
 
   static DesktopChrome? maybeOf(BuildContext context) {
-    return context.dependOnInheritedWidgetOfExactType<_DesktopChromeData>()?.chrome;
+    return context
+        .dependOnInheritedWidgetOfExactType<_DesktopChromeData>()
+        ?.chrome;
   }
 }
 
 class DesktopChromeScope extends StatelessWidget {
-  const DesktopChromeScope({super.key, required this.chrome, required this.child});
+  const DesktopChromeScope({
+    super.key,
+    required this.chrome,
+    required this.child,
+  });
 
   final DesktopChrome chrome;
   final Widget child;
@@ -249,7 +294,9 @@ class DesktopWindowButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tint = chrome.lyricsOpen ? Theme.of(context).colorScheme.primary : null;
+    final tint = chrome.lyricsOpen
+        ? Theme.of(context).colorScheme.primary
+        : null;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

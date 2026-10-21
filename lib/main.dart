@@ -24,6 +24,8 @@ import 'src/subsonic/client.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // macOS and Linux start a Flutter lyrics engine. Windows never does: the
+  // runner paints those lines in a native layered window.
   if (isDesktopLyricsLaunch(args)) {
     await runDesktopLyricsWindow();
     return;

@@ -1,10 +1,15 @@
 /// Argument string desktop_multi_window passes to the lyrics engine.
 const desktopLyricsArgument = 'habitus.lyrics';
 
-/// Channel shared by the main window and the desktop lyrics window.
+/// Channel that carries the current and next lyric lines.
+///
+/// On Windows this is a standard method channel to the runner. macOS and Linux
+/// use the same name with the Flutter lyrics window.
 const desktopLyricsChannel = 'habitus.lyrics';
 
 /// The child engine is started with `multi_window`, its window id, then [desktopLyricsArgument].
 bool isDesktopLyricsLaunch(List<String> args) {
-  return args.length >= 3 && args[0] == 'multi_window' && args[2] == desktopLyricsArgument;
+  return args.length >= 3 &&
+      args[0] == 'multi_window' &&
+      args[2] == desktopLyricsArgument;
 }

@@ -21,7 +21,9 @@ const _lyricShadows = <Shadow>[
   Shadow(color: Color(0xFF000000), offset: Offset(-1, 1)),
 ];
 
-/// Small always-on-top lyrics window. Hiding it leaves the main window running.
+/// Small always-on-top lyrics window for macOS and Linux.
+///
+/// Windows does not start this engine. Hiding the window leaves playback running.
 Future<void> runDesktopLyricsWindow() async {
   await windowManager.ensureInitialized();
   // backgroundColor has to be passed here. A bare waitUntilReadyToShow leaves
@@ -33,13 +35,19 @@ Future<void> runDesktopLyricsWindow() async {
       windowButtonVisibility: false,
     ),
   );
-  const channel = WindowMethodChannel(desktopLyricsChannel, mode: ChannelMode.bidirectional);
+  const channel = WindowMethodChannel(
+    desktopLyricsChannel,
+    mode: ChannelMode.bidirectional,
+  );
   final bridge = _LyricBridge();
   await channel.setMethodCallHandler((call) async {
     if (call.method == 'lines') {
       final args = call.arguments;
       final map = args is Map ? args : const <Object?, Object?>{};
-      bridge.show(map['current']?.toString() ?? '', map['next']?.toString() ?? '');
+      bridge.show(
+        map['current']?.toString() ?? '',
+        map['next']?.toString() ?? '',
+      );
     } else if (call.method == 'close') {
       await _hideLyricsWindow(channel);
     } else if (call.method == 'show') {
@@ -54,11 +62,17 @@ Future<void> runDesktopLyricsWindow() async {
   // Swallow the native close so the engine is never destroyed. On Windows that
   // destruction quits the process.
   await windowManager.setPreventClose(true);
-  await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+  await windowManager.setTitleBarStyle(
+    TitleBarStyle.hidden,
+    windowButtonVisibility: false,
+  );
   await windowManager.setAsFrameless();
   if (Platform.isMacOS) {
     // setAsFrameless marks the window opaque. Hidden title-bar style clears that.
-    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+    await windowManager.setTitleBarStyle(
+      TitleBarStyle.hidden,
+      windowButtonVisibility: false,
+    );
   }
   await windowManager.setResizable(true);
   await windowManager.setMinimumSize(const Size(320, 96));
@@ -119,7 +133,8 @@ class _DesktopLyricsPage extends StatefulWidget {
   State<_DesktopLyricsPage> createState() => _DesktopLyricsPageState();
 }
 
-class _DesktopLyricsPageState extends State<_DesktopLyricsPage> with WindowListener {
+class _DesktopLyricsPageState extends State<_DesktopLyricsPage>
+    with WindowListener {
   String _current = '';
   String _next = '';
   bool _known = false;
@@ -196,7 +211,9 @@ class _DesktopLyricsPageState extends State<_DesktopLyricsPage> with WindowListe
                           softWrap: false,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: missing || waiting ? ink.withValues(alpha: 0.72) : ink,
+                            color: missing || waiting
+                                ? ink.withValues(alpha: 0.72)
+                                : ink,
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                             height: 1.2,
