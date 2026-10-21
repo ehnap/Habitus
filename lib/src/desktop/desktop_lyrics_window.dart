@@ -24,7 +24,15 @@ const _lyricShadows = <Shadow>[
 /// Small always-on-top lyrics window. Hiding it leaves the main window running.
 Future<void> runDesktopLyricsWindow() async {
   await windowManager.ensureInitialized();
-  await windowManager.waitUntilReadyToShow();
+  // backgroundColor has to be passed here. A bare waitUntilReadyToShow leaves
+  // the Windows view on the default opaque white surface.
+  await windowManager.waitUntilReadyToShow(
+    const WindowOptions(
+      backgroundColor: Colors.transparent,
+      titleBarStyle: TitleBarStyle.hidden,
+      windowButtonVisibility: false,
+    ),
+  );
   const channel = WindowMethodChannel(desktopLyricsChannel, mode: ChannelMode.bidirectional);
   final bridge = _LyricBridge();
   await channel.setMethodCallHandler((call) async {
@@ -57,11 +65,9 @@ Future<void> runDesktopLyricsWindow() async {
   await windowManager.setMaximumSize(const Size(720, 160));
   await windowManager.setBounds(const Rect.fromLTWH(120, 96, 560, 112));
   await windowManager.setAlwaysOnTop(true);
-  // Windows clears the system backdrop in the runner, then applies this
-  // gradient. Calling it here first leaves the opaque Win11 sheet in place.
-  if (!Platform.isWindows) {
-    await windowManager.setBackgroundColor(Colors.transparent);
-  }
+  // The window exists now. Set the color again so later frame changes do not
+  // leave the default white client area in place. This includes Windows.
+  await windowManager.setBackgroundColor(Colors.transparent);
   await windowManager.setTitle(Zh.appName);
   await windowManager.show();
   runApp(_DesktopLyricsApp(channel: channel, bridge: bridge));
@@ -166,57 +172,82 @@ class _DesktopLyricsPageState extends State<_DesktopLyricsPage> with WindowListe
     final missing = _known && current.isEmpty && next.isEmpty;
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: Row(
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          Expanded(
-            child: DesktopDragArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      waiting
-                          ? Zh.lyricsLoading
-                          : missing
-                          ? Zh.noLyrics
-                          : (current.isEmpty ? '…' : current),
-                      maxLines: 1,
-                      softWrap: false,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: missing || waiting ? ink.withValues(alpha: 0.72) : ink,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        height: 1.2,
-                        shadows: _lyricShadows,
-                      ),
+          const CustomPaint(painter: _LyricsClearPainter()),
+          Row(
+            children: [
+              Expanded(
+                child: DesktopDragArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          waiting
+                              ? Zh.lyricsLoading
+                              : missing
+                              ? Zh.noLyrics
+                              : (current.isEmpty ? '…' : current),
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: missing || waiting ? ink.withValues(alpha: 0.72) : ink,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            height: 1.2,
+                            shadows: _lyricShadows,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          next,
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: ink.withValues(alpha: 0.82),
+                            fontSize: 13,
+                            height: 1.2,
+                            shadows: _lyricShadows,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      next,
-                      maxLines: 1,
-                      softWrap: false,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: ink.withValues(alpha: 0.82),
-                        fontSize: 13,
-                        height: 1.2,
-                        shadows: _lyricShadows,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
-          IconButton(
-            onPressed: _hide,
-            icon: Icon(Icons.close, color: ink, shadows: _lyricShadows),
+              IconButton(
+                onPressed: _hide,
+                icon: Icon(Icons.close, color: ink, shadows: _lyricShadows),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
+}
+
+/// Writes ARGB 0 over the whole lyrics view. A transparent scaffold does not
+/// replace an opaque white surface; source blend does.
+class _LyricsClearPainter extends CustomPainter {
+  const _LyricsClearPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..blendMode = BlendMode.src
+        ..color = const Color(0x00000000),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

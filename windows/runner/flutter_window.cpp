@@ -11,47 +11,15 @@
 namespace {
 
 std::map<HWND, WNDPROC> g_lyrics_procs;
-
-// A transparent Flutter color only clears the scene. Windows 11 still paints
-// an opaque rounded sheet behind it; these calls drop that sheet. WS_EX_LAYERED
-// is not used: it is uniform alpha or a color key, and either hides the window
-// or fringes the text.
-struct AccentPolicy {
-  int state;
-  int flags;
-  int color;
-  int animation;
-};
-
-struct WindowCompositionAttributeData {
-  int attribute;
-  PVOID data;
-  ULONG size;
-};
-
-using SetWindowCompositionAttributeFn = BOOL(WINAPI*)(HWND, WindowCompositionAttributeData*);
-
-void SetAccentPolicy(HWND hwnd) {
-  const HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
-  if (user32 == nullptr) {
-    return;
-  }
-  const auto set_attribute = reinterpret_cast<SetWindowCompositionAttributeFn>(
-      ::GetProcAddress(user32, "SetWindowCompositionAttribute"));
-  if (set_attribute == nullptr) {
-    return;
-  }
-  // ACCENT_ENABLE_TRANSPARENTGRADIENT, color 0. Flags match window_manager so
-  // Windows 10 still punches a hole; the backdrop below is what Win11 adds.
-  AccentPolicy policy{2, 2, 0, 0};
-  WindowCompositionAttributeData data{19, &policy, sizeof(policy)};
-  set_attribute(hwnd, &data);
-}
+std::map<HWND, WNDPROC> g_lyrics_child_procs;
 
 void ClearLyricsBackdrop(HWND hwnd) {
   if (hwnd == nullptr) {
     return;
   }
+  // Win11 otherwise paints an opaque system sheet behind the Flutter view.
+  // These attributes are not an accent policy. Window styles, including
+  // WS_EX_LAYERED, are left alone.
   const BOOL host_backdrop = FALSE;
   ::DwmSetWindowAttribute(hwnd, 17, &host_backdrop, sizeof(host_backdrop));
   const DWORD backdrop_none = 1;  // DWMSBT_NONE
@@ -63,46 +31,16 @@ void ClearLyricsBackdrop(HWND hwnd) {
   ::DwmSetWindowAttribute(hwnd, 35, &no_color, sizeof(no_color));
 }
 
-void ApplyLyricsTransparency(HWND hwnd, bool frame_changed) {
-  // DwmExtendFrameIntoClientArea and SetWindowPos can dispatch WM_SIZE.
+void ApplyLyricsTransparency(HWND hwnd) {
+  // DwmExtendFrameIntoClientArea can dispatch WM_SIZE back into this proc.
   static bool applying = false;
   if (applying || hwnd == nullptr) {
     return;
   }
   applying = true;
-
-  LONG_PTR style = ::GetWindowLongPtr(hwnd, GWL_STYLE);
-  const LONG_PTR updated_style =
-      (style & ~static_cast<LONG_PTR>(WS_CAPTION | WS_SYSMENU)) | WS_POPUP | WS_THICKFRAME;
-  if (updated_style != style) {
-    ::SetWindowLongPtr(hwnd, GWL_STYLE, updated_style);
-    frame_changed = true;
-  }
-  LONG_PTR ex_style = ::GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-  const LONG_PTR updated_ex = ex_style & ~static_cast<LONG_PTR>(WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE |
-                                                                WS_EX_DLGMODALFRAME | WS_EX_STATICEDGE |
-                                                                WS_EX_LAYERED);
-  if (updated_ex != ex_style) {
-    ::SetWindowLongPtr(hwnd, GWL_EXSTYLE, updated_ex);
-    frame_changed = true;
-  }
-
-  // Drop the Win11 mica sheet, rounded corners, and border. Square corners
-  // also drop the rounded window's shadow card. Integer attributes stay valid
-  // on SDKs that have not named them yet.
   ClearLyricsBackdrop(hwnd);
-
   const MARGINS margins{-1, -1, -1, -1};
   ::DwmExtendFrameIntoClientArea(hwnd, &margins);
-
-  // After the backdrop is cleared. Doing this earlier lets Win11 paint a sheet
-  // over the transparent gradient.
-  SetAccentPolicy(hwnd);
-
-  if (frame_changed) {
-    ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-  }
   applying = false;
 }
 
@@ -117,7 +55,7 @@ LRESULT CALLBACK HabitusLyricsWndProc(HWND hwnd,
   }
   if ((message == WM_SHOWWINDOW && wparam == TRUE) || message == WM_SIZE ||
       message == WM_DWMCOMPOSITIONCHANGED || message == WM_THEMECHANGED) {
-    ApplyLyricsTransparency(hwnd, message != WM_SIZE);
+    ApplyLyricsTransparency(hwnd);
   }
   const auto found = g_lyrics_procs.find(hwnd);
   const WNDPROC previous = found == g_lyrics_procs.end() ? nullptr : found->second;
@@ -139,7 +77,52 @@ void InstallLyricsTransparency(HWND root) {
       g_lyrics_procs.emplace(root, previous);
     }
   }
-  ApplyLyricsTransparency(root, true);
+  ApplyLyricsTransparency(root);
+}
+
+// Flutter's child view erases with the system window color (white) before the
+// first transparent frame. Swallow that erase on the lyrics view only.
+LRESULT CALLBACK HabitusLyricsChildProc(HWND hwnd,
+                                        UINT message,
+                                        WPARAM wparam,
+                                        LPARAM lparam) {
+  if (message == WM_ERASEBKGND) {
+    return 1;
+  }
+  const auto found = g_lyrics_child_procs.find(hwnd);
+  const WNDPROC previous = found == g_lyrics_child_procs.end() ? nullptr : found->second;
+  if (message == WM_NCDESTROY && previous != nullptr) {
+    ::SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(previous));
+    g_lyrics_child_procs.erase(hwnd);
+  }
+  if (previous != nullptr) {
+    return ::CallWindowProc(previous, hwnd, message, wparam, lparam);
+  }
+  return ::DefWindowProc(hwnd, message, wparam, lparam);
+}
+
+void InstallLyricsChildErase(HWND view) {
+  if (view == nullptr || g_lyrics_child_procs.find(view) != g_lyrics_child_procs.end()) {
+    return;
+  }
+  const auto previous = reinterpret_cast<WNDPROC>(::SetWindowLongPtr(
+      view, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(HabitusLyricsChildProc)));
+  if (previous != nullptr) {
+    g_lyrics_child_procs.emplace(view, previous);
+  }
+}
+
+// Flutter 3.47.7 (engine deb287481e) does not export
+// FlutterView::SetBackgroundColor or
+// FlutterDesktopViewControllerSetBackgroundColor. flutter_view.h only exposes
+// GetNativeWindow and GetGraphicsAdapter. The lyrics scene writes ARGB 0
+// itself, and this stops the child HWND from erasing white behind it.
+void PrepareLyricsView(flutter::FlutterView* view) {
+  if (view == nullptr) {
+    return;
+  }
+  HWND hwnd = view->GetNativeWindow();
+  InstallLyricsChildErase(hwnd);
 }
 
 void RegisterLyricsPlugins(flutter::FlutterViewController* controller) {
@@ -148,7 +131,12 @@ void RegisterLyricsPlugins(flutter::FlutterViewController* controller) {
   // desktop_multi_window registers itself after this callback.
   WindowManagerPluginRegisterWithRegistrar(
       controller->engine()->GetRegistrarForPlugin("WindowManagerPlugin"));
-  HWND view = controller->view()->GetNativeWindow();
+  flutter::FlutterView* flutter_view = controller->view();
+  if (flutter_view == nullptr) {
+    return;
+  }
+  PrepareLyricsView(flutter_view);
+  HWND view = flutter_view->GetNativeWindow();
   HWND root = ::GetAncestor(view, GA_ROOT);
   ClearLyricsBackdrop(view);
   InstallLyricsTransparency(root == nullptr ? view : root);
