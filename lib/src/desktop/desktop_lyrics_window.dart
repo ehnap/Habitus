@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
@@ -7,21 +9,22 @@ import '../theme/habitus_theme.dart';
 import 'desktop_args.dart';
 import 'desktop_drag.dart';
 
-/// Small always-on-top lyrics window. Closing it closes only this window.
+const _lyricShadows = <Shadow>[
+  Shadow(color: Color(0xE6000000), blurRadius: 8, offset: Offset(0, 1)),
+  Shadow(color: Color(0xFF000000), offset: Offset(1, 0)),
+  Shadow(color: Color(0xFF000000), offset: Offset(-1, 0)),
+  Shadow(color: Color(0xFF000000), offset: Offset(0, 1)),
+  Shadow(color: Color(0xFF000000), offset: Offset(0, -1)),
+  Shadow(color: Color(0xFF000000), offset: Offset(1, 1)),
+  Shadow(color: Color(0xFF000000), offset: Offset(-1, -1)),
+  Shadow(color: Color(0xFF000000), offset: Offset(1, -1)),
+  Shadow(color: Color(0xFF000000), offset: Offset(-1, 1)),
+];
+
+/// Small always-on-top lyrics window. Hiding it leaves the main window running.
 Future<void> runDesktopLyricsWindow() async {
   await windowManager.ensureInitialized();
   await windowManager.waitUntilReadyToShow();
-  if (await windowManager.isFullScreen()) {
-    await windowManager.setFullScreen(false);
-  }
-  await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
-  await windowManager.setAsFrameless();
-  await windowManager.setResizable(true);
-  await windowManager.setMinimumSize(const Size(320, 96));
-  await windowManager.setMaximumSize(const Size(720, 160));
-  await windowManager.setBounds(const Rect.fromLTWH(120, 96, 560, 112));
-  await windowManager.setAlwaysOnTop(true);
-  await windowManager.setTitle(Zh.appName);
   const channel = WindowMethodChannel(desktopLyricsChannel, mode: ChannelMode.bidirectional);
   final bridge = _LyricBridge();
   await channel.setMethodCallHandler((call) async {
@@ -30,10 +33,32 @@ Future<void> runDesktopLyricsWindow() async {
       final map = args is Map ? args : const <Object?, Object?>{};
       bridge.show(map['current']?.toString() ?? '', map['next']?.toString() ?? '');
     } else if (call.method == 'close') {
-      await _closeLyricsWindow(channel);
+      await _hideLyricsWindow(channel);
+    } else if (call.method == 'show') {
+      await windowManager.show();
+      await windowManager.setAlwaysOnTop(true);
     }
     return null;
   });
+  if (await windowManager.isFullScreen()) {
+    await windowManager.setFullScreen(false);
+  }
+  // Swallow the native close so the engine is never destroyed. On Windows that
+  // destruction quits the process.
+  await windowManager.setPreventClose(true);
+  await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+  await windowManager.setAsFrameless();
+  if (Platform.isMacOS) {
+    // setAsFrameless marks the window opaque. Hidden title-bar style clears that.
+    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+  }
+  await windowManager.setResizable(true);
+  await windowManager.setMinimumSize(const Size(320, 96));
+  await windowManager.setMaximumSize(const Size(720, 160));
+  await windowManager.setBounds(const Rect.fromLTWH(120, 96, 560, 112));
+  await windowManager.setAlwaysOnTop(true);
+  await windowManager.setBackgroundColor(Colors.transparent);
+  await windowManager.setTitle(Zh.appName);
   await windowManager.show();
   runApp(_DesktopLyricsApp(channel: channel, bridge: bridge));
 }
@@ -44,13 +69,12 @@ class _LyricBridge {
   void show(String current, String next) => onLines?.call(current, next);
 }
 
-Future<void> _closeLyricsWindow(WindowMethodChannel channel) async {
+Future<void> _hideLyricsWindow(WindowMethodChannel channel) async {
   try {
-    await channel.invokeMethod('closed');
+    await channel.invokeMethod<void>('closed');
   } catch (_) {}
   try {
-    await windowManager.setPreventClose(false);
-    await windowManager.close();
+    await windowManager.hide();
   } catch (_) {}
 }
 
@@ -65,7 +89,7 @@ class _DesktopLyricsApp extends StatelessWidget {
     return MaterialApp(
       title: Zh.appName,
       debugShowCheckedModeBanner: false,
-      theme: habitusDark(),
+      theme: habitusDark().copyWith(scaffoldBackgroundColor: Colors.transparent),
       home: _DesktopLyricsPage(channel: channel, bridge: bridge),
     );
   }
@@ -112,13 +136,17 @@ class _DesktopLyricsPageState extends State<_DesktopLyricsPage> with WindowListe
 
   @override
   void onWindowClose() {
-    _close();
+    _hide();
   }
 
-  Future<void> _close() async {
+  Future<void> _hide() async {
     if (_closing) return;
     _closing = true;
-    await _closeLyricsWindow(widget.channel);
+    try {
+      await _hideLyricsWindow(widget.channel);
+    } finally {
+      _closing = false;
+    }
   }
 
   @override
@@ -129,7 +157,7 @@ class _DesktopLyricsPageState extends State<_DesktopLyricsPage> with WindowListe
     final waiting = !_known;
     final missing = _known && current.isEmpty && next.isEmpty;
     return Scaffold(
-      backgroundColor: HabitusColors.night,
+      backgroundColor: Colors.transparent,
       body: Row(
         children: [
           Expanded(
@@ -150,10 +178,11 @@ class _DesktopLyricsPageState extends State<_DesktopLyricsPage> with WindowListe
                       softWrap: false,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: missing || waiting ? ink.withValues(alpha: 0.55) : ink,
+                        color: missing || waiting ? ink.withValues(alpha: 0.72) : ink,
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         height: 1.2,
+                        shadows: _lyricShadows,
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -162,7 +191,12 @@ class _DesktopLyricsPageState extends State<_DesktopLyricsPage> with WindowListe
                       maxLines: 1,
                       softWrap: false,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: ink.withValues(alpha: 0.42), fontSize: 13, height: 1.2),
+                      style: TextStyle(
+                        color: ink.withValues(alpha: 0.82),
+                        fontSize: 13,
+                        height: 1.2,
+                        shadows: _lyricShadows,
+                      ),
                     ),
                   ],
                 ),
@@ -170,9 +204,8 @@ class _DesktopLyricsPageState extends State<_DesktopLyricsPage> with WindowListe
             ),
           ),
           IconButton(
-            tooltip: Zh.close,
-            onPressed: _close,
-            icon: Icon(Icons.close, color: ink.withValues(alpha: 0.8)),
+            onPressed: _hide,
+            icon: Icon(Icons.close, color: ink, shadows: _lyricShadows),
           ),
         ],
       ),

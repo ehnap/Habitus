@@ -1,9 +1,73 @@
 #include "flutter_window.h"
 
+#include <dwmapi.h>
+#include <map>
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
+#include "window_manager/window_manager_plugin.h"
+
+namespace {
+
+std::map<HWND, WNDPROC> g_lyrics_procs;
+
+void ExtendLyricsFrame(HWND hwnd) {
+  // DwmExtendFrameIntoClientArea can dispatch WM_SIZE back into this proc.
+  static bool extending = false;
+  if (extending || hwnd == nullptr) {
+    return;
+  }
+  extending = true;
+  const MARGINS margins{-1, -1, -1, -1};
+  DwmExtendFrameIntoClientArea(hwnd, &margins);
+  extending = false;
+}
+
+// Keeps the glass frame extended after window_manager resets it while
+// applying a hidden title bar. The lyrics engine is never destroyed.
+LRESULT CALLBACK HabitusLyricsWndProc(HWND hwnd,
+                                      UINT message,
+                                      WPARAM wparam,
+                                      LPARAM lparam) {
+  if ((message == WM_SHOWWINDOW && wparam == TRUE) || message == WM_SIZE) {
+    ExtendLyricsFrame(hwnd);
+  }
+  const auto found = g_lyrics_procs.find(hwnd);
+  const WNDPROC previous = found == g_lyrics_procs.end() ? nullptr : found->second;
+  if (message == WM_NCDESTROY && previous != nullptr) {
+    SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(previous));
+    g_lyrics_procs.erase(hwnd);
+  }
+  if (previous != nullptr) {
+    return CallWindowProc(previous, hwnd, message, wparam, lparam);
+  }
+  return DefWindowProc(hwnd, message, wparam, lparam);
+}
+
+void InstallLyricsTransparency(HWND root) {
+  if (root != nullptr && g_lyrics_procs.find(root) == g_lyrics_procs.end()) {
+    const auto previous = reinterpret_cast<WNDPROC>(SetWindowLongPtr(
+        root, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(HabitusLyricsWndProc)));
+    if (previous != nullptr) {
+      g_lyrics_procs.emplace(root, previous);
+    }
+  }
+  ExtendLyricsFrame(root);
+}
+
+void RegisterLyricsPlugins(flutter::FlutterViewController* controller) {
+  // Audio and storage plugins on this engine crash or quit the process when
+  // the window is torn down. The lyrics view only needs window_manager.
+  // desktop_multi_window registers itself after this callback.
+  WindowManagerPluginRegisterWithRegistrar(
+      controller->engine()->GetRegistrarForPlugin("WindowManagerPlugin"));
+  HWND view = controller->view()->GetNativeWindow();
+  HWND root = ::GetAncestor(view, GA_ROOT);
+  InstallLyricsTransparency(root == nullptr ? view : root);
+}
+
+}  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -27,10 +91,8 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   DesktopMultiWindowSetWindowCreatedCallback([](void* controller) {
-    auto* flutter_view_controller =
-        reinterpret_cast<flutter::FlutterViewController*>(controller);
-    auto* registry = flutter_view_controller->engine();
-    RegisterPlugins(registry);
+    RegisterLyricsPlugins(
+        reinterpret_cast<flutter::FlutterViewController*>(controller));
   });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 

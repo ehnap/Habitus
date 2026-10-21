@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' hide RepeatMode;
+import 'package:flutter/rendering.dart';
 
 import '../copy/zh.dart';
 import '../desktop/desktop_chrome.dart';
@@ -58,13 +59,11 @@ class _PlayerPageState extends State<PlayerPage> {
         title: const Text(Zh.appName),
         actions: [
           IconButton(
-            tooltip: _center == 0 ? Zh.lyric : Zh.cover,
             onPressed: _toggleCenter,
             icon: Icon(_center == 0 ? Icons.lyrics_outlined : Icons.album_outlined),
           ),
           if (DesktopChrome.maybeOf(context) case final chrome?) DesktopWindowButtons(chrome: chrome),
           IconButton(
-            tooltip: Zh.queue,
             onPressed: () => _openQueue(context),
             icon: const Icon(Icons.queue_music),
           ),
@@ -120,17 +119,14 @@ class _PlayerPageState extends State<PlayerPage> {
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
                             IconButton(
-                              tooltip: view.shuffle ? Zh.shuffleOn : Zh.shuffleOff,
                               onPressed: () => controller.player.setShuffleEnabled(!view.shuffle),
                               icon: Icon(Icons.shuffle, color: view.shuffle ? Theme.of(context).colorScheme.primary : null),
                             ),
                             IconButton(
-                              tooltip: Zh.previous,
                               onPressed: controller.player.skipToPrevious,
                               icon: const Icon(Icons.skip_previous, size: 36),
                             ),
                             IconButton(
-                              tooltip: view.playing ? Zh.pause : Zh.play,
                               onPressed: view.playing ? controller.player.pause : controller.player.play,
                               icon: Icon(
                                 view.playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
@@ -138,12 +134,10 @@ class _PlayerPageState extends State<PlayerPage> {
                               ),
                             ),
                             IconButton(
-                              tooltip: Zh.next,
                               onPressed: controller.player.skipToNext,
                               icon: const Icon(Icons.skip_next, size: 36),
                             ),
                             IconButton(
-                              tooltip: _repeatLabel(view.repeat),
                               onPressed: () => controller.player.setRepeat(_nextRepeat(view.repeat)),
                               icon: Icon(
                                 view.repeat == RepeatMode.one ? Icons.repeat_one : Icons.repeat,
@@ -312,7 +306,12 @@ class _LyricPage extends StatefulWidget {
 class _LyricPageState extends State<_LyricPage> {
   late Future<LyricTrack?> _future;
   final ScrollController _scroll = ScrollController();
-  int _active = -2;
+  final Map<int, GlobalKey> _keys = {};
+  int _followIndex = -2;
+  int _token = 0;
+  int _centerTries = 0;
+  bool _hold = false;
+  bool _didCenter = false;
 
   @override
   void initState() {
@@ -324,7 +323,12 @@ class _LyricPageState extends State<_LyricPage> {
   void didUpdateWidget(covariant _LyricPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.song.id != widget.song.id) {
-      _active = -2;
+      _followIndex = -2;
+      _hold = false;
+      _didCenter = false;
+      _centerTries = 0;
+      _token++;
+      _keys.clear();
       _future = _load();
     }
   }
@@ -337,11 +341,66 @@ class _LyricPageState extends State<_LyricPage> {
 
   Future<LyricTrack?> _load() => widget.controller.lyrics(widget.song);
 
-  void _follow(int index) {
-    if (index == _active || !_scroll.hasClients) return;
-    _active = index;
-    final target = (index * 48.0 - 96).clamp(0, _scroll.position.maxScrollExtent);
-    _scroll.animateTo(target.toDouble(), duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+  GlobalKey _lineKey(int index) => _keys.putIfAbsent(index, GlobalKey.new);
+
+  void _requestCenter(int index) {
+    if (index == _followIndex) return;
+    _followIndex = index;
+    _hold = false;
+    _centerTries = 0;
+    if (index < 0) return;
+    final token = ++_token;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _center(index, token));
+  }
+
+  bool _onUserScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) {
+      _hold = true;
+      _token++;
+    }
+    return false;
+  }
+
+  void _center(int index, int token) {
+    if (!mounted || token != _token || _hold || _followIndex != index) return;
+    if (!_scroll.hasClients || !_scroll.position.hasContentDimensions) {
+      _retryCenter(index, token);
+      return;
+    }
+    final renderObject = _keys[index]?.currentContext?.findRenderObject();
+    if (renderObject == null || !renderObject.attached) {
+      _retryCenter(index, token);
+      return;
+    }
+    final viewport = RenderAbstractViewport.maybeOf(renderObject);
+    if (viewport == null || _scroll.position.viewportDimension < 32) {
+      _retryCenter(index, token);
+      return;
+    }
+    final RevealedOffset revealed;
+    try {
+      revealed = viewport.getOffsetToReveal(renderObject, 0.5);
+    } catch (_) {
+      _retryCenter(index, token);
+      return;
+    }
+    final clamped = revealed.offset.clamp(0.0, _scroll.position.maxScrollExtent);
+    final distance = (clamped - _scroll.offset).abs();
+    if (distance >= 1) {
+      if (!_didCenter || distance > _scroll.position.viewportDimension * 0.6) {
+        _scroll.jumpTo(clamped);
+      } else {
+        _scroll.animateTo(clamped, duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+      }
+    }
+    _didCenter = true;
+  }
+
+  void _retryCenter(int index, int token) {
+    if (_centerTries >= 12) return;
+    _centerTries++;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _center(index, token));
   }
 
   @override
@@ -369,32 +428,21 @@ class _LyricPageState extends State<_LyricPage> {
                 return const MessagePane(icon: Icons.lyrics_outlined, title: Zh.noLyrics);
               }
               final active = activeLyricIndex(track, widget.position);
-              WidgetsBinding.instance.addPostFrameCallback((_) => _follow(active));
-              return ListView.builder(
-                controller: _scroll,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-                itemCount: track.lines.length,
-                itemBuilder: (context, index) {
-                  final line = track.lines[index];
-                  final on = index == active;
-                  final start = lineStart(line, track.offset);
-                  return InkWell(
-                    onTap: start == null
-                        ? null
-                        : () => widget.controller.player.seek(start < Duration.zero ? Duration.zero : start),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      child: Text(
-                        line.text.isEmpty ? '…' : line.text,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: on ? 18 : 15,
-                          height: 1.35,
-                          fontWeight: on ? FontWeight.w700 : FontWeight.w400,
-                          color: on
-                              ? Theme.of(context).colorScheme.primary
-                              : Theme.of(context).textTheme.bodyMedium?.color?.withValues(alpha: 0.72),
-                        ),
+              _requestCenter(active);
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final pad = constraints.maxHeight.isFinite ? constraints.maxHeight / 2 : 0.0;
+                  return NotificationListener<ScrollNotification>(
+                    onNotification: _onUserScroll,
+                    child: SingleChildScrollView(
+                      controller: _scroll,
+                      primary: false,
+                      padding: EdgeInsets.fromLTRB(24, pad, 24, pad),
+                      child: Column(
+                        children: [
+                          for (var index = 0; index < track.lines.length; index++)
+                            _lyricLine(context, track, index, active),
+                        ],
                       ),
                     ),
                   );
@@ -406,16 +454,30 @@ class _LyricPageState extends State<_LyricPage> {
       ],
     );
   }
-}
 
-String _repeatLabel(RepeatMode mode) {
-  switch (mode) {
-    case RepeatMode.off:
-      return Zh.repeatOff;
-    case RepeatMode.all:
-      return Zh.repeatAll;
-    case RepeatMode.one:
-      return Zh.repeatOne;
+  Widget _lyricLine(BuildContext context, LyricTrack track, int index, int active) {
+    final line = track.lines[index];
+    final on = index == active;
+    final start = lineStart(line, track.offset);
+    return InkWell(
+      key: _lineKey(index),
+      onTap: start == null ? null : () => widget.controller.player.seek(start < Duration.zero ? Duration.zero : start),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Text(
+          line.text.isEmpty ? '…' : line.text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: on ? 18 : 15,
+            height: 1.35,
+            fontWeight: on ? FontWeight.w700 : FontWeight.w400,
+            color: on
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).textTheme.bodyMedium?.color?.withValues(alpha: 0.72),
+          ),
+        ),
+      ),
+    );
   }
 }
 

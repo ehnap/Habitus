@@ -3,15 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../copy/zh.dart';
 import '../playback/lyrics.dart';
 import '../state/app_controller.dart';
 import 'desktop_args.dart';
 
 /// Main-window mini mode and the desktop lyrics window.
 ///
-/// [windowManager.destroy] posts a quit to the process, so this class only
-/// calls [windowManager.close] on the lyrics window.
+/// The lyrics window is hidden, never destroyed. Destroying that engine on
+/// Windows quits the process, and [windowManager.destroy] posts a quit even
+/// from the main window.
 class DesktopChrome extends ChangeNotifier {
   DesktopChrome(this.controller);
 
@@ -111,16 +111,39 @@ class DesktopChrome extends ChangeNotifier {
     } catch (_) {}
   }
 
+  Future<bool> _lyricsWindowAlive() async {
+    try {
+      final windows = await WindowController.getAll();
+      return windows.any((window) => window.arguments == desktopLyricsArgument);
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> toggleLyrics() async {
     if (_busy) return;
     _busy = true;
     try {
       if (lyricsOpen) {
         lyricsOpen = false;
+        _linesKey = null;
         notifyListeners();
         try {
           await _channel.invokeMethod<void>('close');
         } catch (_) {}
+        return;
+      }
+      if (await _lyricsWindowAlive()) {
+        lyricsOpen = true;
+        _linesKey = null;
+        notifyListeners();
+        try {
+          await _channel.invokeMethod<void>('show');
+          await _pushLines();
+        } catch (_) {
+          lyricsOpen = false;
+          notifyListeners();
+        }
         return;
       }
       await WindowController.create(
@@ -231,12 +254,10 @@ class DesktopWindowButtons extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          tooltip: chrome.lyricsOpen ? Zh.desktopLyricsOff : Zh.desktopLyrics,
           onPressed: chrome.toggleLyrics,
           icon: Icon(Icons.subtitles_outlined, color: tint),
         ),
         IconButton(
-          tooltip: Zh.miniMode,
           onPressed: chrome.enterMini,
           icon: const Icon(Icons.picture_in_picture_alt_outlined),
         ),

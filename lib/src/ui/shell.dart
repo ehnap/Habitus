@@ -6,6 +6,7 @@ import '../copy/zh.dart';
 import '../desktop/desktop_chrome.dart';
 import '../desktop/desktop_drag.dart';
 import '../model/models.dart';
+import '../playback/lyrics.dart';
 import '../state/app_controller.dart';
 import '../theme/habitus_theme.dart';
 import 'browse_pages.dart';
@@ -327,14 +328,13 @@ class _Transport extends StatelessWidget {
                         ),
                       ),
                       if (desktop) ...[
-                        IconButton(tooltip: Zh.previous, onPressed: controller.player.skipToPrevious, icon: const Icon(Icons.skip_previous)),
+                        IconButton(onPressed: controller.player.skipToPrevious, icon: const Icon(Icons.skip_previous)),
                       ],
                       IconButton(
-                        tooltip: view.playing ? Zh.pause : Zh.play,
                         onPressed: view.playing ? controller.player.pause : controller.player.play,
                         icon: Icon(view.playing ? Icons.pause_circle_filled : Icons.play_circle_fill, size: 36),
                       ),
-                      IconButton(tooltip: Zh.next, onPressed: controller.player.skipToNext, icon: const Icon(Icons.skip_next)),
+                      IconButton(onPressed: controller.player.skipToNext, icon: const Icon(Icons.skip_next)),
                       if (chrome != null) DesktopWindowButtons(chrome: chrome!),
                     ],
                   ),
@@ -385,11 +385,21 @@ class _MiniBar extends StatelessWidget {
                           ),
                           const SizedBox(width: 10),
                           Expanded(
-                            child: Text(
-                              song?.title ?? Zh.noQueue,
-                              maxLines: 1,
-                              softWrap: false,
-                              overflow: TextOverflow.ellipsis,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  song?.title ?? Zh.noQueue,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (song != null) ...[
+                                  const SizedBox(height: 2),
+                                  _MiniLyric(controller: controller, song: song, position: view.position),
+                                ],
+                              ],
                             ),
                           ),
                         ],
@@ -398,19 +408,16 @@ class _MiniBar extends StatelessWidget {
                   ),
                   if (song != null) SongHeart(controller: controller, song: song, size: 20),
                   IconButton(
-                    tooltip: view.playing ? Zh.pause : Zh.play,
                     onPressed: song == null
                         ? null
                         : (view.playing ? controller.player.pause : controller.player.play),
                     icon: Icon(view.playing ? Icons.pause_circle_filled : Icons.play_circle_fill, size: 32),
                   ),
                   IconButton(
-                    tooltip: Zh.next,
                     onPressed: song == null ? null : controller.player.skipToNext,
                     icon: const Icon(Icons.skip_next),
                   ),
                   IconButton(
-                    tooltip: Zh.restoreWindow,
                     onPressed: chrome.exitMini,
                     icon: const Icon(Icons.open_in_full),
                   ),
@@ -420,6 +427,60 @@ class _MiniBar extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class _MiniLyric extends StatefulWidget {
+  const _MiniLyric({required this.controller, required this.song, required this.position});
+
+  final AppController controller;
+  final Song song;
+  final Duration position;
+
+  @override
+  State<_MiniLyric> createState() => _MiniLyricState();
+}
+
+class _MiniLyricState extends State<_MiniLyric> {
+  late String _songId;
+  late Future<LyricTrack?> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _songId = widget.song.id;
+    _future = widget.controller.lyrics(widget.song);
+  }
+
+  @override
+  void didUpdateWidget(covariant _MiniLyric oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.song.id != _songId) {
+      _songId = widget.song.id;
+      _future = widget.controller.lyrics(widget.song);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<LyricTrack?>(
+      future: _future,
+      builder: (context, snapshot) {
+        final line = snapshot.connectionState == ConnectionState.done && !snapshot.hasError
+            ? lyricWindowLines(snapshot.data, widget.position).current
+            : '';
+        return SizedBox(
+          height: 16,
+          child: Text(
+            line,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.1),
+          ),
+        );
+      },
     );
   }
 }

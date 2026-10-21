@@ -5,8 +5,46 @@
 #include <gdk/gdkx.h>
 #endif
 
+#include <cairo.h>
+
 #include "flutter/generated_plugin_registrant.h"
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
+#include "window_manager/window_manager_plugin.h"
+
+// The lyrics engine only needs window_manager. Registering the audio plugins
+// here makes closing that window tear down playback. The view background is
+// cleared so the desktop shows through the Flutter scene.
+static void register_lyrics_plugins(FlPluginRegistry* registry) {
+  g_autoptr(FlPluginRegistrar) registrar =
+      fl_plugin_registry_get_registrar_for_plugin(registry,
+                                                  "WindowManagerPlugin");
+  if (registrar == nullptr) {
+    return;
+  }
+  window_manager_plugin_register_with_registrar(registrar);
+  FlView* view = fl_plugin_registrar_get_view(registrar);
+  if (view == nullptr) {
+    return;
+  }
+  GdkRGBA color = {0, 0, 0, 0};
+  fl_view_set_background_color(view, &color);
+  GtkWidget* window = gtk_widget_get_toplevel(GTK_WIDGET(view));
+  if (!GTK_IS_WINDOW(window)) {
+    return;
+  }
+  gtk_widget_set_app_paintable(window, TRUE);
+  GdkScreen* screen = gtk_widget_get_screen(window);
+  GdkVisual* visual = gdk_screen_get_rgba_visual(screen);
+  if (visual != nullptr && !gtk_widget_get_realized(window)) {
+    gtk_widget_set_visual(window, visual);
+  }
+  GdkWindow* gdk_window = gtk_widget_get_window(window);
+  if (gdk_window != nullptr) {
+    cairo_region_t* empty = cairo_region_create();
+    gdk_window_set_opaque_region(gdk_window, empty);
+    cairo_region_destroy(empty);
+  }
+}
 
 struct _MyApplication {
   GtkApplication parent_instance;
@@ -76,7 +114,7 @@ static void my_application_activate(GApplication* application) {
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
   desktop_multi_window_plugin_set_window_created_callback([](FlPluginRegistry* registry) {
-    fl_register_plugins(registry);
+    register_lyrics_plugins(registry);
   });
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
